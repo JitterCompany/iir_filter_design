@@ -1,6 +1,7 @@
                            
 import jax
 import jax.numpy as jnp
+import numpy as np
 
 def _group_delay(c, w):
     """
@@ -91,10 +92,10 @@ def _H_eval(c, w):
     H: ndarray with dtype 'complex64'
     
     """
-
-    H0 = c[-1]
+    
     _H = jnp.ones(len(w), dtype='complex64')
     J = len(c) // 4 # number of 2nd order filter sections
+    H0 = c[J*4] # H0 is the first element after the coefficients. 
     for i in range(0, J*4, 4):
         a0, a1, b0, b1 = c[i:i+4]
         _H *= (a0 + a1*jnp.exp(1j*w) + jnp.exp(2*1j*w)) / (b0 + b1*jnp.exp(1j*w) + jnp.exp(2*1j*w))
@@ -124,3 +125,37 @@ def _H_mag_squared(c, w):
 
 
 H_mag_squared_gradient = jax.jacrev(_H_mag_squared)
+
+
+
+def H_gradient(x, w):
+    """ Analytical implementation of the gradient of the 
+        transfer function H with respect to the coefficients x
+        
+        
+        
+    """
+    
+    J = len(c) // 4 # number of 2nd order filter sections
+    H0 = c[J*4] # H0 is the first element after the coefficients. 
+    
+    H = H_eval(x, w)
+    grad = []
+    for i in range(0, J*4, 4):
+        a0, a1, b0, b1 = c[i:i+4]
+        
+        
+        dhda0 = (1 / (a0 + (a1 + 1) * np.exp(1j*w))) * H
+        dhda1 = (np.exp(1j*w) / (a0 + (a1 + 1) * np.exp(1j*w))) * H
+        
+        dhdb0 = (1 / (b0 + (b1 + 1) * np.exp(1j*w))) * H
+        dhdb1 = (np.exp(1j*w) / (b0 + (b1 + 1) * np.exp(1j*w))) * H
+        
+        
+        grad.extend([dhda0, dhda1, dhdb0, dhdb1 ])
+
+    dhdh0 = np.ones(len(w))
+    dhdtau = np.zeros(len(w))
+    grad.extend([dhdh0, dhdtau])
+
+    return np.c_[grad].T

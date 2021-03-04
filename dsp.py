@@ -165,9 +165,9 @@ def H_eval(c, w):
     
     """
 
-    H0 = c[-1]
     _H = np.ones(len(w), dtype='complex128')
     J = len(c) // 4 # number of 2nd order filter sections
+    H0 = c[J*4] # H0 is the first element after the coefficients. 
     for i in range(0, J*4, 4):
         a0, a1, b0, b1 = c[i:i+4]
         _H *= (a0 + a1*np.exp(1j*w) + np.exp(2*1j*w)) / (b0 + b1*np.exp(1j*w) + np.exp(2*1j*w))
@@ -178,4 +178,147 @@ def H_mag_squared(c, w):
     Calculcate the squared magnitude response of the filter.
     """
     return np.abs(H_eval(c,w))**2
+
+
+
+def stability_constraints(c, r_max):
+    """ Returns the stability constraints matrix B and colum nvector b
+    so that
+
+        B*delta < b
+    
+    in which delta is a optimization variable that updates the filter 
+    coefficients.
+
+    Assumed is that delta corresponds to 
+    [a10, a11, a12, b10, b11, a20, a21 ... bJ1]
+
+    coeffs: ndarray
+        filter coefficients
+    r_max : scalar
+        the maximum pole radius, which helps establish a stability 
+        margin.
+
+    returns B, b
+    =======
+
+    B : matrix
+    b : column vector
+    """
+    epsilon_s = 1 - r_max
+    b = []
+    J = len(c) // 4 # number of filter stages
+    for i in range(0, J*4, 4):
+        _a0, _a1, b0, b1 = c[i:i+4]
+        b_ = np.c_[(1-epsilon_s)-b0, 
+                (1-epsilon_s)-b1+b0, 
+                (1-epsilon_s)+b1+b0].T
+        b.append(b_)
+    b = np.vstack(b)
+
+    width = 2*J + 2
+    height = 3*J
+    B = np.zeros((height,width))
+    beta = np.array([[1, 0], [-1, 1], [-1, -1]])
+
+    for i in range(J):
+        x = 2*i
+        y = i*3
+        B[y:y+3, x:x+2] = beta
+    return B, b
+
+
+def add_tau(c, w):
+    """
+    Adds the groupdelay scalar tau to the coefficient vector
+    
+    parameters
+    ----------
+    
+    c: ndarray
+        filter coefficients
+        
+    w: ndarray
+        frequency bins in the range [0, π]
+        
+    returns
+    -------
+    
+    x: ndarray
+        [c tau]
+    """
+    
+    gd = group_delay(c, w)
+    tau = np.mean(gd)
+    x = np.r_[c, tau]
+    return x
+
+
+def zplane(z, p, ax):
+    """Plot the complex z-plane given zeros and poles.
+    """
+    import matplotlib.pyplot as plt
+    from matplotlib import patches
+    from matplotlib.pyplot import axvline, axhline
+    from collections import defaultdict   
+    
+    # Add unit circle and zero axes    
+    unit_circle = patches.Circle((0,0), radius=1, fill=False,
+                                 color='black', ls='solid', alpha=0.1)
+    ax.add_patch(unit_circle)
+    axvline(0, color='0.7')
+    axhline(0, color='0.7')
+    
+    # Plot the poles and set marker properties
+    poles = plt.plot(p.real, p.imag, 'x', markersize=9, alpha=0.5)
+    
+    # Plot the zeros and set marker properties
+    zeros = plt.plot(z.real, z.imag,  'o', markersize=9, 
+             color='none', alpha=0.5,
+             markeredgecolor=poles[0].get_color(), # same color as poles
+             )
+
+    # Scale axes to fit
+    r = 1.5 * np.amax(np.concatenate((abs(z), abs(p), [1])))
+    plt.axis('scaled')
+    plt.axis([-r, r, -r, r])
+
+    
+    #If there are multiple poles or zeros at the same point, put a 
+    #superscript next to them.
+
+    # Finding duplicates by same pixel coordinates (hacky for now):
+    poles_xy = ax.transData.transform(np.vstack(poles[0].get_data()).T)
+    zeros_xy = ax.transData.transform(np.vstack(zeros[0].get_data()).T)    
+    # dict keys should be ints for matching, but coords should be floats for 
+    # keeping location of text accurate while zooming
+
+    # TODO make less hacky, reduce duplication of code
+    d = defaultdict(int)
+    coords = defaultdict(tuple)
+    for xy in poles_xy:
+        key = tuple(np.rint(xy).astype('int'))
+        d[key] += 1
+        coords[key] = xy
+    for key, value in d.items():
+        if value > 1:
+            x, y = ax.transData.inverted().transform(coords[key])
+            plt.text(x, y, 
+                        r' ${}^{' + str(value) + '}$',
+                        fontsize=13,
+                        )
+
+    d = defaultdict(int)
+    coords = defaultdict(tuple)
+    for xy in zeros_xy:
+        key = tuple(np.rint(xy).astype('int'))
+        d[key] += 1
+        coords[key] = xy
+    for key, value in d.items():
+        if value > 1:
+            x, y = ax.transData.inverted().transform(coords[key])
+            plt.text(x, y, 
+                        r' ${}^{' + str(value) + '}$',
+                        fontsize=13,
+                        )
 
